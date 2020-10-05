@@ -489,6 +489,25 @@ class GoogleCloudStreamingSTT(StreamingSTT):
         )
 
 
+class VoskSTT(STT):
+    """
+        STT interface for the vosk-api:
+    """
+    def __init__(self):
+        from vosk import Model, KaldiRecognizer
+
+        super(VoskSTT, self).__init__()
+        self.lang = self.config.get('lang') or self.lang
+        self.model = Model("/opt/vosk/models/" + self.language)
+        self.recognizer = KaldiRecognizer(model, 16000)
+
+    def execute(self, audio, language=None):
+        if self.recognizer.AcceptWaveform(audio.get_wav_data()):
+            res = json.loads(self.recognizer.Result())
+            self.text = res['text']
+        return self.text
+
+
 class KaldiSTT(STT):
     def __init__(self):
         super(KaldiSTT, self).__init__()
@@ -560,7 +579,8 @@ class STTFactory:
         "deepspeech_server": DeepSpeechServerSTT,
         "deepspeech_stream_server": DeepSpeechStreamServerSTT,
         "mycroft_deepspeech": MycroftDeepSpeechSTT,
-        "yandex": YandexSTT
+        "yandex": YandexSTT,
+        "vosk": VoskSTT
     }
 
     @staticmethod
