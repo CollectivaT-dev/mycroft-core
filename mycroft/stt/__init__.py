@@ -489,23 +489,56 @@ class GoogleCloudStreamingSTT(StreamingSTT):
         )
 
 
-class VoskSTT(STT):
-    """
-        STT interface for the vosk-api:
-    """
+class VoskKaldiSTT(STT):
     def __init__(self):
+        super().__init__()
+        global KaldiRecognizer
         from vosk import Model, KaldiRecognizer
-
-        super(VoskSTT, self).__init__()
         self.lang = self.config.get('lang') or self.lang
-        self.model = Model("/opt/vosk/models/" + self.language)
-        self.recognizer = KaldiRecognizer(model, 16000)
+        self.model = Model("/opt/vosk/models/" + self.lang)
 
     def execute(self, audio, language=None):
-        if self.recognizer.AcceptWaveform(audio.get_wav_data()):
-            res = json.loads(self.recognizer.Result())
-            self.text = res['text']
+        kaldi = KaldiRecognizer(self.model, 16000)
+        kaldi.AcceptWaveform(audio.get_wav_data())
+        res = kaldi.FinalResult()
+        res = json.loads(res)
+        return res["text"]
+
+
+class VoskKaldiStreamThread(StreamThread):
+    def __init__(self, queue, lang, kaldi):
+        super().__init__(queue, lang)
+        self.kaldi = kaldi
+
+    def handle_audio_stream(self, audio, language):
+        for a in audio:
+            data = np.frombuffer(a, np.int16)
+            if self.kaldi.AcceptWaveform(data):
+                res = self.kaldi.Result()
+                res = json.loads(res)
+                self.text = res["text"]
+            else:
+                res = self.kaldi.PartialResult()
+                res = json.loads(res)
+                self.text = res["partial"]
+
         return self.text
+
+
+class VoskKaldiStreamingSTT(StreamingSTT, VoskKaldiSTT):
+    def __init__(self):
+        super().__init__()
+        global np
+        import numpy as np
+
+    def create_streaming_thread(self):
+        self.queue = Queue()
+        kaldi = KaldiRecognizer(self.model, 16000)
+        return VoskKaldiStreamThread(
+            self.queue,
+            self.lang,
+            kaldi
+        )
 
 
 class KaldiSTT(STT):
@@ -580,7 +613,8 @@ class STTFactory:
         "deepspeech_stream_server": DeepSpeechStreamServerSTT,
         "mycroft_deepspeech": MycroftDeepSpeechSTT,
         "yandex": YandexSTT,
-        "vosk": VoskSTT
+        "vosk": VoskKaldiSTT,
+        "vosk_streaming": VoskKaldiStreamingSTT
     }
 
     @staticmethod
